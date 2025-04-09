@@ -23,9 +23,6 @@
 
 This backend service provides the core functionality for sssync.app, a multi-channel e-commerce platform designed to simplify inventory management and enable inter-seller marketplace features. It acts as the central hub connecting various online marketplaces (Shopify, Square, Amazon, etc.) and user interfaces (web app, mobile app).
 
-## Getting Started
-
-Follow these steps to set up the development environment locally.
 
 ### Prerequisites
 
@@ -42,60 +39,47 @@ Ensure you have the following tools installed on your system (macOS instructions
     *   *Linux:* Install Docker Engine.
 4.  **Git:** For version control.
     *   *macOS (Homebrew):* `brew install git` (usually pre-installed)
-5.  **IDE/Text Editor:** Visual Studio Code, JetBrains Rider, or Visual Studio 2022 recommended.
+5.  **ENV** Create a `.env` file in the root of the repository and add the following variables:
+    *   `SUPABASE_URL`
+    *   `SUPABASE_ANON_KEY`
+    *   `SUPABASE_SERVICE_ROLE_KEY` (for Railway deployment)
 
-### Installation & Setup
+**Configure Git Ignore (`.gitignore`)**
+*`.gitignore` Essentials**
 
-1.  **Clone the Repository:**
-    ```bash
-    git clone <your-repository-url>
-    cd sssync-backend
-    ```
-2.  **Restore .NET Dependencies:**
-    ```bash
-    dotnet restore sssync-backend.sln
-    ```
-3.  **Initialize Supabase (Local Development):**
-    *   Start Docker Desktop.
-    *   Run the following command in the `sssync-backend` root directory:
-        ```bash
-        supabase init # Only run this once if the 'supabase' folder doesn't exist
-        supabase start
-        ```
-    *   This will start the Supabase stack locally (Postgres, Auth, Storage, etc.) and output local API keys and URLs.
-4.  **Configure Application Settings:**
-    *   Copy the local Supabase URL and `anon` key provided by `supabase start`.
-    *   Update your `sssync-backend/appsettings.Development.json` (create it if it doesn't exist) or configure user secrets:
-        ```json
-        {
-          "Supabase": {
-            "Url": "http://localhost:54321", // Replace with your local Supabase URL
-            "Key": "YOUR_LOCAL_SUPABASE_ANON_KEY", // Replace with your local anon key
-            "ServiceKey": "YOUR_LOCAL_SUPABASE_SERVICE_ROLE_KEY" // Get from `supabase status`
-          },
-          "ConnectionStrings": {
-            // Optional: If using EF core directly with the connection string
-            "Supabase": "Host=localhost;Port=54323;Database=postgres;Username=postgres;Password=postgres" // Default local Supabase DB credentials
-          },
-          "Logging": {
-            // ... logging settings ...
-          }
-        }
-        ```
-    *   **Note:** Never commit your actual production keys to Git. Use environment variables or secure configuration providers for production.
-5.  **Apply Database Migrations (if any):**
-    *   If there are migrations in the `supabase/migrations` folder, apply them to your local database:
-        ```bash
-        supabase db reset # WARNING: This resets the local database! Use with caution.
-        # OR apply new migrations if the database already exists and is set up:
-        # supabase migration up
-        ```
-6.  **Run the Application:**
-    *   You can run the API project from your IDE or using the command line:
-        ```bash
-        dotnet run --project src/api/sssync-backend.api.csproj
-        ```
-    *   The API should now be running, typically on `https://localhost:7xxx` and `http://localhost:5xxx`.
+Ensure your `.gitignore` file (at the root of the repository) includes at least the following to prevent committing build artifacts, user settings, and potentially sensitive files:
+
+```gitignore
+# .NET Core build outputs
+[Bb]in/
+[Oo]bj/
+
+# IDE specific files
+.idea/
+.vs/
+*.suo
+*.[Cc]ache
+*.user
+*.userosscache
+
+# Supabase local temp files
+supabase/.temp/
+
+# User Secrets file ID (prevents committing the ID itself)
+**/secrets.json
+
+# Rider specific
+*.sln.iml
+
+# Windows thumbnail cache
+Thumbs.db
+
+# Secrets
+* appsettings.Development.json #If you ever accidentally put secrets here
+* .env #If you ever accidentally put secrets here
+```
+**Important:** Do **NOT** add `appsettings.json` or `supabase/migrations/` to `.gitignore`.
+
 
 ## Architecture
 
