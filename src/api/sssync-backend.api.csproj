@@ -1,10 +1,11 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>sssync_backend.api</RootNamespace>
+    <UserSecretsId>72152339-9fbe-4fe2-84e9-efa36d32dcf9</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

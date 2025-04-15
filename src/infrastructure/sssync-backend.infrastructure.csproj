@@ -5,6 +5,12 @@
     <RootNamespace>sssync_backend.infrastructure</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UserSecretsId>80850b59-3fbc-4e53-b6a2-4ee4931a2415</UserSecretsId>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RestSharp" Version="112.1.0" />
+    <PackageReference Include="ShopifySharp" Version="6.22.2" />
+  </ItemGroup>
 
 </Project>
