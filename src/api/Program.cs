@@ -11,6 +11,16 @@ using sssync_backend.infrastructure.Persistence; // Add repository implementatio
 using System.Text; // For JWT Key encoding
 using ShopifySharp.Enums; // For Shopify Scopes
 using ShopifySharp.Infrastructure; // For RequestEngine
+using sssync_backend.core.Interfaces.Repositories;
+using sssync_backend.infrastructure.Persistence.Repositories;
+using sssync_backend.core.Interfaces.Services;
+using sssync_backend.infrastructure.Services;
+using sssync_backend.core.Interfaces.Platform;
+using sssync_backend.infrastructure.Platform;
+using sssync_backend.infrastructure.Platform.Shopify;
+using MediatR;
+using System.Reflection;
+using Microsoft.AspNetCore.DataProtection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -44,23 +54,63 @@ if (builder.Environment.IsDevelopment())
     builder.Configuration.AddUserSecrets<Program>(); // Store sensitive keys (Shopify Secret, JWT Key, Supabase Service Key) here during dev
 }
 
-// --- Service Registration ---
+// --- Configure Services ---
 
-// Supabase Client (Singleton recommended)
-builder.Services.AddSingleton<Supabase.Client>(sp =>
+// Add Logging, Controllers, etc.
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// Configure Authentication (Ensure this is set up correctly for Supabase JWTs)
+// builder.Services.AddAuthentication(...) 
+// builder.Services.AddAuthorization();
+
+// Configure Options Pattern for Shopify Settings
+builder.Services.Configure<ShopifyAppSettings>(
+    builder.Configuration.GetSection("ShopifyApp"));
+
+// Configure Supabase Client
+// Make sure SUPABASE_URL and SUPABASE_KEY are in config (appsettings/env vars)
+var supabaseUrl = builder.Configuration["Supabase:Url"];
+var supabaseKey = builder.Configuration["Supabase:ApiKey"];
+if (!string.IsNullOrEmpty(supabaseUrl) && !string.IsNullOrEmpty(supabaseKey))
 {
-    var config = sp.GetRequiredService<IConfiguration>();
-    var url = config["Supabase:Url"] ?? throw new InvalidOperationException("Supabase:Url not configured.");
-    var key = config["Supabase:ApiKey"] ?? throw new InvalidOperationException("Supabase:ApiKey not configured.");
-    // Consider using Service Role Key for backend operations if needed, loaded securely.
-    var options = new SupabaseOptions
-    {
-        AutoRefreshToken = true,
-        AutoConnectRealtime = false, // Enable if using Realtime features
-        // Add other options as needed
-    };
-    return new Supabase.Client(url, key, options);
-});
+    builder.Services.AddSingleton(provider => 
+        new Client(supabaseUrl, supabaseKey, new SupabaseOptions
+        {
+            AutoConnectRealtime = true // Optional: If using Realtime features
+        }));
+}
+else
+{
+    // Log or handle missing Supabase configuration
+    Console.WriteLine("Warning: Supabase URL or ApiKey not configured.");
+}
+
+// Configure Data Protection (Needed for EncryptionService)
+// Keys might be stored ephemerally by default in development.
+// For production, configure persistence (e.g., to Azure Blob Storage, Redis, DB)
+// See: https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview
+builder.Services.AddDataProtection(); 
+
+// Configure HttpClientFactory (for ShopifyApiClient)
+builder.Services.AddHttpClient(); // Register default factory
+builder.Services.AddHttpClient("ShopifyApiClient"); // Optionally configure named client here if needed
+
+// Register Application Core Services (MediatR)
+// This scans the assembly containing your handlers/commands/queries
+builder.Services.AddMediatR(Assembly.GetAssembly(typeof(sssync_backend.core.Application.Handlers.InitiatePlatformConnectionHandler))); 
+
+// Register Infrastructure Services & Repositories
+builder.Services.AddScoped<IPlatformConnectionRepository, PlatformConnectionRepository>();
+builder.Services.AddScoped<IEncryptionService, EncryptionService>();
+
+// Register Platform API Clients
+builder.Services.AddScoped<ShopifyApiClient>(); // Register concrete type
+// Register CloverApiClient, etc. when implemented
+
+// Register the Platform API Client Factory
+builder.Services.AddScoped<IPlatformApiClientFactory, PlatformApiClientFactory>();
 
 // Register Repositories (Scoped recommended)
 builder.Services.AddScoped<IPlatformConnectionRepository, SupabasePlatformConnectionRepository>();
@@ -70,9 +120,6 @@ builder.Services.AddScoped<IUserRepository, SupabaseUserRepository>();
 
 // Register Core Services
 builder.Services.AddScoped<ISyncService, SyncService>();
-
-// Register Infrastructure Services
-builder.Services.AddHttpClient(); // Used by ShopifySharp etc.
 
 // Register platform integration services
 builder.Services.AddScoped<IPlatformIntegrationService, ShopifyService>();
@@ -112,213 +159,22 @@ builder.Services.AddAuthorization(); // Add authorization services
 
 // --- End Service Registration ---
 
-
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddEndpointsApiExplorer(); // Use this instead of AddOpenApi for minimal APIs
-builder.Services.AddSwaggerGen(c =>
-{
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "sssync API", Version = "v1" });
-    // Add JWT Authentication to Swagger UI
-    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-    {
-        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
-        Name = "Authorization",
-        In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
-    c.AddSecurityRequirement(new OpenApiSecurityRequirement()
-    {
-        {
-            new OpenApiSecurityScheme
-            {
-                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" },
-                Scheme = "oauth2",
-                Name = "Bearer",
-                In = ParameterLocation.Header,
-            },
-            new List<string>()
-        }
-    });
-});
-
+// --- Configure Middleware Pipeline ---
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "sssync API v1"));
-    app.UseDeveloperExceptionPage(); // More detailed errors in dev
-}
-else
-{
-    // Add production error handling (e.g., app.UseExceptionHandler("/Error"))
-    app.UseHsts(); // Enforce HTTPS in production
+    app.UseSwaggerUI();
 }
 
 app.UseHttpsRedirection();
 
-// --- Authentication/Authorization Middleware ---
-app.UseAuthentication(); // IMPORTANT: Must come before UseAuthorization
-app.UseAuthorization();
+// IMPORTANT: Ensure Authentication and Authorization middleware are added correctly
+// app.UseAuthentication(); 
+// app.UseAuthorization();
 
-
-// --- Minimal API Endpoints ---
-
-var authGroup = app.MapGroup("/api/auth").WithTags("Authentication");
-var syncGroup = app.MapGroup("/api/sync").WithTags("Sync").RequireAuthorization(); // Secure sync endpoints
-var connectionGroup = app.MapGroup("/api/connections").WithTags("Connections").RequireAuthorization(); // Secure connection endpoints
-
-// --- Shopify OAuth Endpoints ---
-authGroup.MapGet("/shopify/initiate", (HttpContext context, IConfiguration config) =>
-{
-    // TODO: Get UserId from authenticated context (e.g., context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value)
-    string? userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(userId)) return Results.Unauthorized();
-
-    var shopifyApiKey = config["ShopifyApp:ApiKey"] ?? throw new InvalidOperationException("ShopifyApp:ApiKey not configured.");
-    var redirectUrl = config["ShopifyApp:DefaultRedirectUrl"] ?? throw new InvalidOperationException("ShopifyApp:DefaultRedirectUrl not configured.");
-    // Define required scopes
-    var scopes = new List<AuthorizationScope>() {
-        AuthorizationScope.ReadProducts,
-        AuthorizationScope.WriteProducts,
-        AuthorizationScope.ReadInventory,
-        AuthorizationScope.WriteInventory,
-        AuthorizationScope.ReadLocations
-        // Add other scopes as needed (Orders, Customers, etc.)
-    };
-
-    // Get shop domain from query parameter (user enters this in frontend)
-    if (!context.Request.Query.TryGetValue("shop", out var shopDomain) || string.IsNullOrEmpty(shopDomain))
-    {
-        return Results.BadRequest("Missing 'shop' query parameter (e.g., my-store.myshopify.com).");
-    }
-
-    // Construct the authorization URL
-    // NOTE: ShopifySharp's AuthorizationService might require credentials upfront.
-    // We construct it manually here for simplicity in this endpoint.
-    var authUrl = ShopifySharp.AuthorizationService.BuildAuthorizationUrl(scopes, shopDomain.ToString(), shopifyApiKey, redirectUrl, state: userId); // Use userId as state for verification
-
-    _logger.LogInformation("Redirecting user {UserId} to Shopify auth for shop {ShopDomain}", userId, shopDomain);
-    // Redirect the user's browser
-    return Results.Redirect(authUrl.ToString());
-
-}).WithName("InitiateShopifyAuth");
-
-
-authGroup.MapGet("/shopify/callback", async (
-    HttpContext context,
-    IConfiguration config,
-    IPlatformConnectionRepository connectionRepo,
-    ILogger<Program> logger) =>
-{
-    // Extract parameters Shopify sends back
-    string? code = context.Request.Query["code"];
-    string? shop = context.Request.Query["shop"];
-    string? state = context.Request.Query["state"]; // This should be the userId we sent
-
-    // TODO: Get expected UserId from authenticated context OR handle state validation carefully
-    // For now, we trust the state parameter matches the user initiating
-    string? expectedUserId = state; // Simplification - requires robust validation in production
-
-    logger.LogInformation("Received Shopify callback for shop {Shop} with code present: {HasCode}", shop, !string.IsNullOrEmpty(code));
-
-    // Validate parameters
-    if (string.IsNullOrEmpty(code) || string.IsNullOrEmpty(shop) || string.IsNullOrEmpty(expectedUserId))
-    {
-        logger.LogError("Invalid Shopify callback parameters received. Code: {Code}, Shop: {Shop}, State: {State}", code, shop, state);
-        return Results.BadRequest("Invalid callback parameters.");
-    }
-
-    var shopifyApiKey = config["ShopifyApp:ApiKey"] ?? throw new InvalidOperationException("ShopifyApp:ApiKey not configured.");
-    var shopifySecret = config["ShopifyApp:ApiSecret"] ?? throw new InvalidOperationException("ShopifyApp:ApiSecret not configured.");
-
-    try
-    {
-        // Exchange the authorization code for an access token
-        string accessToken = await ShopifySharp.AuthorizationService.Authorize(code, shop, shopifyApiKey, shopifySecret);
-
-        logger.LogInformation("Successfully obtained Shopify access token for user {UserId}, shop {Shop}", expectedUserId, shop);
-
-        // Save the connection details
-        var connection = new PlatformConnection
-        {
-            UserId = expectedUserId,
-            Platform = "Shopify",
-            ShopDomain = shop,
-            AccessToken = accessToken, // TODO: Encrypt this token before saving!
-            RefreshToken = null, // Shopify REST Admin API tokens don't typically expire/refresh this way
-            ExpiresAt = null
-        };
-        await connectionRepo.SaveConnectionAsync(connection);
-
-        // TODO: Redirect user back to a success page in your frontend application
-        return Results.Ok($"Successfully connected Shopify store: {shop}. You can close this window.");
-        // Example Redirect: return Results.Redirect("https://YOUR_FRONTEND_URL/connections?success=shopify");
-    }
-    catch (ShopifyException ex)
-    {
-        logger.LogError(ex, "Shopify API error during token exchange for shop {Shop}: {StatusCode} - {Error}", shop, ex.HttpStatusCode, ex.Message);
-        return Results.Problem($"Shopify authorization failed: {ex.Message}");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Generic error during Shopify callback processing for shop {Shop}", shop);
-        return Results.Problem("An unexpected error occurred during Shopify authorization.");
-    }
-}).WithName("HandleShopifyCallback");
-
-
-// --- Connection Management Endpoints ---
-connectionGroup.MapGet("/", async (HttpContext context, IPlatformConnectionRepository connectionRepo) =>
-{
-    string? userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(userId)) return Results.Unauthorized();
-
-    var connections = await connectionRepo.GetActiveConnectionsAsync(userId);
-    // Avoid sending back sensitive tokens to the frontend
-    var safeConnections = connections.Select(c => new { c.UserId, c.Platform, c.ShopDomain /* Add other safe fields */ });
-    return Results.Ok(safeConnections);
-}).WithName("GetUserConnections");
-
-connectionGroup.MapDelete("/{platformName}", async (string platformName, HttpContext context, IPlatformConnectionRepository connectionRepo) =>
-{
-     string? userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(userId)) return Results.Unauthorized();
-
-    await connectionRepo.DeleteConnectionAsync(userId, platformName);
-    return Results.NoContent(); // Success
-}).WithName("DeleteUserConnection");
-
-
-// --- Sync Endpoints ---
-syncGroup.MapPost("/trigger", async (HttpContext context, ILogger<Program> logger, ISyncService syncService) =>
-{
-    string? userId = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-    if (string.IsNullOrEmpty(userId)) return Results.Unauthorized();
-
-    logger.LogInformation("Manual sync trigger requested for authenticated user {UserId}", userId);
-    try
-    {
-        // Fire-and-forget is simple but not robust. Consider Hangfire or similar for background jobs.
-        _ = Task.Run(() => syncService.SynchronizeUserAsync(userId));
-        // TODO: Implement status checking endpoint and return its URL
-        return Results.Accepted(value: $"Sync triggered for user {userId}.");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Error triggering sync for user {UserId}", userId);
-        return Results.Problem($"An error occurred while triggering sync for user {userId}");
-    }
-})
-.WithName("TriggerUserSync")
-.Produces(StatusCodes.Status202Accepted)
-.ProducesProblem(StatusCodes.Status500InternalServerError);
-
-// TODO: Add endpoint to check sync status (requires SyncJobs table/repo)
-// syncGroup.MapGet("/status", ...)
-
+app.MapControllers();
 
 app.Run();

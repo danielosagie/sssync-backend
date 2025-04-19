@@ -1,10 +1,10 @@
-        # nixpacks.toml - Configure Nixpacks build environment
+    # nixpacks.toml - Force .NET 8 SDK
 
-        [phases.setup]
-        # Request the .NET 8 SDK package from Nixpkgs
-        nixPkgs = ["...", "dotnet-sdk_8"]
+    [phases.setup]
+    # Explicitly request ONLY the .NET 8 SDK package.
+    # Removed "..." to avoid inheriting defaults that might include .NET 6.
+    nixPkgs = ["dotnet-sdk_8"]
 
-        [start]
-        # Ensure this matches the expected output path and executable name
-        # This is the default Nixpacks usually determines for .NET projects
-        cmd = "./out/sssync-backend.api"
+    [start]
+    # Confirm this matches your API project's assembly name
+    cmd = "./out/sssync-backend.api"
